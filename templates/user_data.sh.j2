@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Install Ansible
+
+## The below lines are needed if we're installing Ansible from the PPA
+# apt-get install software-properties-common
+# apt-add-repository ppa:ansible/ansible -y
+
+apt-get update
+apt-get -y install git python-lxml python-pip
+
+# Install Ansible 2.1.1.0 from pip
+pip install markupsafe ansible==2.1.1.0
+
+# Install the AWS CLI tools (from pip because apt version is broken)
+pip install awscli

@@ -1,0 +1,97 @@
+- name: Generate temporary key pair
+  connection: local
+  ec2_key:
+    name: "temporary_ami_create_keypair"
+    aws_access_key: "{{ aws_access_key_id  }}"
+    aws_secret_key: "{{ aws_secret_access_key }}"
+    region: "{{ aws_region_id | default('us-east-1') }}"
+  register: temp_generated_key
+
+- name: Print out generated keypair
+  debug: msg="{{ temp_generated_key }}"
+
+- name: Save key to local file
+  connection: local
+  copy: content="{{ temp_generated_key.key.private_key }}" dest=./temp_create_ami.key
+  when: temp_generated_key | changed
+
+- name: Ensure key has correct permissions
+  connection: local
+  file: path=temp_create_ami.key mode=0600
+  when: temp_generated_key | changed
+
+- name: Get our current external IP
+  connection: local
+  command: curl http://v4.ident.me/
+  register: local_external_ip
+
+- name: Ensure Security group is there and lets us connect
+  connection: local
+  ec2_group:
+    name: temp AMI creation group
+    description: temporary security group for creating secure AMI
+    vpc_id: 'vpc-fa73d89f' # TODO: don't hard code this
+    region: "{{ aws_region_id | default('us-east-1') }}"
+    aws_secret_key: "{{ aws_access_key_id }}"
+    aws_access_key: "{{ aws_secret_access_key }}"
+    rules:
+      - proto: tcp
+        from_port: 22
+        to_port: 22
+        cidr_ip: 0.0.0.0/0  #"{{ local_external_ip.stdout }}/32"
+
+- name: Ensure subnet is there
+  debug: msg=TODO
+
+- name: Find right Ubuntu AMI
+  connection: local
+  ec2_ami_find:
+    aws_access_key: "{{ aws_access_key_id }}"
+    aws_secret_key: "{{ aws_secret_access_key }}"
+    name: "ubuntu/images/hvm-ssd/ubuntu-trusty-14.04-amd64-server-*"
+    name: "ubuntu/images/hvm-ssd/ubuntu-{{ ubuntu_version | default('xenial-16.04') }}-amd64-server-*"
+    sort: name
+    sort_order: descending
+    sort_end: 1
+    region: "{{ aws_region_id | default('us-east-1') }}"
+  register: ami_find
+
+- name: Launch instance
+  connection: local
+  ec2:
+    aws_access_key: "{{ aws_access_key_id }}"
+    aws_secret_key: "{{ aws_secret_access_key }}"
+    key_name: "temporary_ami_create_keypair"
+    instance_type: "t2.small"
+    image: "{{ ami_find.results[0].ami_id }}"
+    wait: false
+    region: "{{ aws_region_id | default('us-east-1') }}"
+    vpc_subnet_id: 'subnet-abc530f2'
+    assign_public_ip: yes
+    user_data: "{{ lookup('template', 'user_data.sh.j2') }}"
+    volumes:
+      # /home volume
+      - device_name: /dev/xvdb
+        volume_type: gp2
+        volume_size: 10
+      # /var volume
+      - device_name: /dev/xvdc
+        volume_type: gp2
+        volume_size: 10
+      # /tmp volume
+      - device_name: /dev/xvdd
+        volume_type: gp2
+        volume_size: 5
+    instance_tags:
+      Name: "Temporary instance for AMI creation"
+  register: ec2
+
+- name: Add new instance to host group
+  add_host: hostname={{ item.private_ip }} groupname=tempgroup ansible_ssh_private_key_file=temp_create_ami.key
+  with_items: "{{ ec2.instances }}"
+
+- name: Wait for SSH to come up
+  wait_for: host={{ item.private_dns_name }} port=22 delay=60 timeout=600 state=started
+  with_items: "{{ ec2.instances }}"
+
+
