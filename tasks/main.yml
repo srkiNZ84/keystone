@@ -25,20 +25,42 @@
   command: curl http://v4.ident.me/
   register: local_external_ip
 
+- name: Lookup default VPC ID
+  tags: ['security-group']
+  debug: msg=TODO
+
+- name: Print out AWS ID
+  tags: ['security-group']
+  debug: msg="{{ aws_access_key_id }}"
+
+- name: Print out AWS Secret
+  tags: ['security-group']
+  debug: msg="{{ aws_secret_access_key }}"
+
 - name: Ensure Security group is there and lets us connect
   connection: local
-  ec2_group:
-    name: temp AMI creation group
-    description: temporary security group for creating secure AMI
-    vpc_id: 'vpc-fa73d89f' # TODO: don't hard code this
-    region: "{{ aws_region_id | default('us-east-1') }}"
-    aws_secret_key: "{{ aws_access_key_id }}"
-    aws_access_key: "{{ aws_secret_access_key }}"
-    rules:
-      - proto: tcp
-        from_port: 22
-        to_port: 22
-        cidr_ip: 0.0.0.0/0  #"{{ local_external_ip.stdout }}/32"
+  tags: ['security-group']
+  command: "aws ec2 create-security-group --group-name tempgroup --description \"Temp security group\" --vpc-id vpc-e2c92285"
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key }}"
+    AWS_DEFAULT_REGION: "{{ aws_region_id | default(\"us-east-1\") }}"
+  ignore_errors: true
+  register: security_group_create
+  #ec2_group:
+  #  name: "tempgroup"
+  #  description: "temporary security group for creating secure AMI"
+  #  vpc_id: "vpc-e2c92285" # TODO: don't hard code this
+  #  region: "{{ aws_region_id | default('us-east-1') }}"
+  #  aws_secret_key: "{{ aws_access_key_id }}"
+  #  aws_access_key: "{{ aws_secret_access_key }}"
+  #  rules:
+  #    - proto: tcp
+  #      from_port: 22
+  #      to_port: 22
+  #      cidr_ip: "0.0.0.0/0"  #"{{ local_external_ip.stdout }}/32"
+
+
 
 - name: Ensure subnet is there
   debug: msg=TODO
@@ -71,15 +93,15 @@
     user_data: "{{ lookup('template', 'user_data.sh.j2') }}"
     volumes:
       # /home volume
-      - device_name: /dev/xvdb
+      - device_name: /dev/sdb
         volume_type: gp2
         volume_size: 10
       # /var volume
-      - device_name: /dev/xvdc
+      - device_name: /dev/sdc
         volume_type: gp2
         volume_size: 10
       # /tmp volume
-      - device_name: /dev/xvdd
+      - device_name: /dev/sdd
         volume_type: gp2
         volume_size: 5
     instance_tags:
